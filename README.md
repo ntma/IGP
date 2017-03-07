@@ -15,14 +15,13 @@ To achieve this goal, we will divide the project into two stages: in the first w
 * PostgreSQL 9.5
 * Psycopg2
 * Numpy
-* Python OpenCV 3.1 (to be removed in future release)
-* PyFLANN (Python bindings for FLANN)
+* PyFLANN (Modified and available in https://github.com/ntma/flann)
 
 ### Related Algorithms ###
 * Vocabulary Prioritized Search (VPS) [1]
 * Active Search (AS) [1]
-* SPRT-RANSAC [4] (converted from ACG-Localizer c++ source code [5] to python)
-* Direct Linear Transform (DLT) from 6 correspondences 
+* SPRT-RANSAC (converted from ACG-Localizer c++ source code [5] to python) [4]
+* Direct Linear Transform (DLT) from 6 correspondences [4]
 
 ### Datasets ###
 
