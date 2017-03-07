@@ -1,37 +1,25 @@
 import numpy as np
-import struct
 
 
-def read_flickr_vocabulary(filepath, n_centroids):
-    """
-    Reader for the Holidays, flickr visual vocabulary
+def read_generic_vocabulary_100K(filepath, norm_flag=False):
 
-    :param filepath: file path
-    :param n_centroids: number of vocabulary centroids
-    :return: numpy array with the vocabulary
-    """
     try:
-        f = open(filepath, "rb")
+        f = open(filepath, "r")
     except IOError:
         print "Could not open " + str(filepath)
-        return None, None
+        return None
 
     words = []
 
-    for i in range(0, n_centroids):
-        b = f.read(4)
+    for i in range(100000):
+        line = f.readline()[:-1].split()
 
-        desc_size = struct.unpack('i', b)[0]
+        word = np.array(line, dtype=float)
 
-        desc_buffer = f.read(4 * desc_size)
+        if norm_flag:
+            word /= np.linalg.norm(word)
 
-        desc128f_list = struct.unpack('128f', desc_buffer[:])
-        desc128f_array = np.array(desc128f_list, dtype=float)
-
-        # Values do not seem normilized
-        desc128f_array /= np.linalg.norm(desc128f_array)
-
-        words.append(desc128f_array)
+        words.append(word)
 
     f.close()
 
@@ -71,11 +59,20 @@ def read_sift_file(filepath):
         #s = float(line[2])
         #o = float(line[3])
 
-        line = f.readline()[1:-1].split(' ')
+        #k = f.readline()
+        line = f.readline()[:-1]
+        if line[0] == ' ':
+            line = line[1:]
+
+        line = line.split(' ')
+
         desc = np.array(line, dtype=float)
 
         for j in range(6):
-            line = f.readline()[1:-1].split(' ')
+            line = f.readline()[:-1]
+            if line[0] == ' ':
+                line = line[1:]
+            line = line.split(' ')
             g = np.array(line, dtype=float)
             desc = np.concatenate((desc, g))
 
@@ -91,38 +88,4 @@ def read_sift_file(filepath):
     descs = np.array(descs)
 
     return kpts, descs
-
-
-def read_query_list(filepath, n_queries):
-    """
-    Reader for the query file paths
-    :param filepath: file path
-    :param n_queries: number of queries to expect
-    :return: dictionary[filename] = ground truth 3x1 numpy array
-    """
-
-    try:
-        f = open(filepath, "r")
-    except IOError:
-        print "Could not open " + str(filepath)
-        return None
-
-    query_list = dict()
-
-    for i in range(n_queries):
-        line = f.readline()[:-1].split(' ')
-
-        filename = line[0]
-
-        C1 = float(line[-3])
-        C2 = float(line[-2])
-        C3 = float(line[-1])
-
-        C = np.array([[C1], [C2], [C3]])
-
-        query_list[filename] = C
-
-    f.close()
-
-    return query_list
 
