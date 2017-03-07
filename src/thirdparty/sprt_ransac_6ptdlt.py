@@ -1,13 +1,13 @@
-from cv2 import SVDecomp, decomposeProjectionMatrix
+from src.utils.geometry import compute_SVD, project_point
 import random
 import numpy as np
+
 
 ##############
 # References #
 ##############
 
 # [1] https://www.graphics.rwth-aachen.de/software/image-localization
-# [2] http://people.rennes.inria.fr/Eric.Marchand/pose-estimation/tutorial-pose-dlt-opencv.html
 
 #################################################################
 # ACG SPRT-RANSAC Implementation adapted from ACG-Localizer [1] #
@@ -27,13 +27,15 @@ class SPRTRANSACDLT:
         self.nb_epsilon_values = 8
         self.nb_delta_values = 10
 
+        self.number_of_samples = 6
+
         self.max_number_of_LO_samples = 12 # TODO: keep this?
         self.nb_lo_steps = 10
 
         self.LOG_5_PER = -2.99573
 
-        # By the paper efficient and effective
-        self.error = np.sqrt(10)
+        # By the paper efficient and effective (squared reprojection error)
+        self.reproj_error = 10 #np.sqrt(10)
 
         self.SPRT_eps_val = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         self.SPRT_delta_val = [0.01, 0.02, 0.07, 0.12, 0.17, 0.22, 0.27, 0.32, 0.37, 0.42]
@@ -281,19 +283,31 @@ class SPRTRANSACDLT:
 
         return np.ceil(numerator / np.log(1.0 - Pg * (1.0 - 1.0 / self.A_i[l] )))
 
-    def compute_residuals(self, pts3d, pts2d, P):
-        residuals = np.zeros(len(pts3d))
+    def evaluate_correspondence(self, pt3d, pt2d, P):
 
-        # Project 3D to 2D using P
-        for i in range(len(pts3d)):
-            h_pt2d = np.matmul(P, (np.array([pts3d[i][0], pts3d[i][1], pts3d[i][2], 1.0])).reshape(4, 1))
+        projpoint = project_point(P, pt3d)
 
-            newh = np.array([h_pt2d[0][0] / h_pt2d[2][0], h_pt2d[1][0] / h_pt2d[2][0]])
+        dx = pt2d[0] - projpoint[0]
+        dy = pt2d[1] - projpoint[1]
 
-            # Compute delta errors
-            residuals[i] = np.linalg.norm(pts2d[i] - newh)
+        return dx*dx + dy*dy#np.power(np.linalg.norm(pt2d - projpoint), 2.0)
 
-        return residuals
+    def compute_pseudo_random_indexes(self, pts3d, pts2d):
+        # take a random sample from the set of correspondences
+        pseudo_random_indexes = random.sample(xrange(len(pts3d)), 6)
+
+        # add the correspondences
+        x  = pts2d[pseudo_random_indexes] # numpy hack with list of indexes
+        wX = pts3d[pseudo_random_indexes] # numpy hack with list of indexes
+
+        """x = []
+        wX = []
+        for pr in pseudo_random_indexes:
+            x.append(pts2d[pr])
+            wX.append(pts3d[pr])"""
+
+        return wX, x
+
 
     #########################
     # DLT Support functions #
@@ -370,135 +384,144 @@ class SPRTRANSACDLT:
 
         return True, scaledwX, scaledx, m_matScaleImgInv, m_matScaleWorld
 
-    # 3D points, 2D points, outT, outR
-    # Based on [2]
-    def pose_dlt(self, unscaledwX, unscaledx):
-        """
-        Computes the P matrix from unscaled 3D-2D correspondences
-        :param unscaledwX: unscaled 3D points
-        :param unscaledx: unscaled 2D points
-        :return: P matrix
-        """
+    def pose_dlt_acg(self, unscaledwX, unscaledx):
+        endCorr = len(unscaledwX)
 
-        # First scale coordinates (normalization to avoid large deviations when applying DLT)
+        nrows = 3 * endCorr
+        ncols = 12
+
+        mat_A = np.zeros((nrows, ncols))
+        vec_point = np.zeros(4)
+
         m_flag, wX, x, m_imgscale, m_worldscale = self.scaleCorrespondences(unscaledwX, unscaledx)
 
-        if not m_flag:
-            print "[ERROR] Computing wrong scaling in DLT..."
+        for corr in range(0, endCorr):
+            vec_point[ 0 ] = wX[corr][0]
+            vec_point[ 1 ] = wX[corr][1]
+            vec_point[ 2 ] = wX[corr][2]
+            vec_point[ 3 ] = 1.0
 
-        ctw = np.zeros((3, 1))
-        cRw = np.zeros((3, 3))
+            mat_A[3*corr][0] = - vec_point[ 0 ]
+            mat_A[3*corr][1] = - vec_point[ 1 ]
+            mat_A[3*corr][2] = - vec_point[ 2 ]
+            mat_A[3*corr][3] = - vec_point[ 3 ]
 
-        npoints = len(wX)
-        A = np.zeros((2 * npoints, 12))  # Mat, CV_64F, cv::Scalar(0));
-        for i in range(npoints):  # Update matrix A using eq. 5
-            A[2 * i][0] = wX[i][0]  # //wX[i][0] ;
-            A[2 * i][1] = wX[i][1]
-            A[2 * i][2] = wX[i][2]
-            A[2 * i][3] = 1
-            A[2 * i + 1][4] = wX[i][0]
-            A[2 * i + 1][5] = wX[i][1]
-            A[2 * i + 1][6] = wX[i][2]
-            A[2 * i + 1][7] = 1
-            A[2 * i][8] = - x[i][0] * wX[i][0]
-            A[2 * i][9] = - x[i][0] * wX[i][1]
-            A[2 * i][10] = - x[i][0] * wX[i][2]
-            A[2 * i][11] = - x[i][0]
-            A[2 * i + 1][8] = - x[i][1] * wX[i][0]
-            A[2 * i + 1][9] = - x[i][1] * wX[i][1]
-            A[2 * i + 1][10] = - x[i][1] * wX[i][2]
-            A[2 * i + 1][11] = - x[i][1]
+            mat_A[3*corr][8 ]= vec_point[ 0 ] * x[corr][0]
+            mat_A[3*corr][9 ]= vec_point[ 1 ] * x[corr][0]
+            mat_A[3*corr][10] = vec_point[ 2 ] * x[corr][0]
+            mat_A[3*corr][11] = vec_point[ 3 ] * x[corr][0]
 
-        w, u, vt = SVDecomp(A)  # cv2.svd.compute
-        # w, u, vt = np.linalg.svd(A)
+            mat_A[3*corr + 1][ 4 ] = - vec_point[ 0 ]
+            mat_A[3*corr + 1][ 5 ] = - vec_point[ 1 ]
+            mat_A[3*corr + 1][ 6 ] = - vec_point[ 2 ]
+            mat_A[3*corr + 1][ 7 ] = - vec_point[ 3 ]
 
-        smallestSv = w[0][0]  # double
-        indexSmallestSv = 0  # unisnged int
+            mat_A[3*corr + 1][8  ]= vec_point[ 0 ] *  x[corr][1]
+            mat_A[3*corr + 1][9  ]= vec_point[ 1 ] *  x[corr][1]
+            mat_A[3*corr + 1][10 ] = vec_point[ 2 ] * x[corr][1]
+            mat_A[3*corr + 1][11 ] = vec_point[ 3 ] * x[corr][1]
 
-        for i in range(1, w.shape[0]):
-            if w[i][0] < smallestSv:
-                smallestSv = w[i][0]
-                indexSmallestSv = i
+            mat_A[3*corr + 2][0] = -vec_point[ 0 ] * x[corr][1]
+            mat_A[3*corr + 2][1] = -vec_point[ 1 ] * x[corr][1]
+            mat_A[3*corr + 2][2] = -vec_point[ 2 ] * x[corr][1]
+            mat_A[3*corr + 2][3] = -vec_point[ 3 ] * x[corr][1]
 
-        h = vt[indexSmallestSv]  # Mat row
+            mat_A[3*corr + 2][4 ] = vec_point[ 0 ] * x[corr][0]
+            mat_A[3*corr + 2][5 ] = vec_point[ 1 ] * x[corr][0]
+            mat_A[3*corr + 2][6 ] = vec_point[ 2 ] * x[corr][0]
+            mat_A[3*corr + 2][7 ] = vec_point[ 3 ] * x[corr][0]
 
-        if h[11] < 0:  # // tz < 0
-            h *= -1
+        _, _, mat_VT = compute_SVD(mat_A)
 
-        # Normalization to ensure that ||r3|| = 1
-        norm = np.sqrt(h[8] * h[8] + h[9] * h[9] + h[10] * h[10])
-        h = h / norm
+        m_projectionMatrix = np.zeros((3, 4))
+        for row in range(3):
+            for col in range(4):
+                m_projectionMatrix[row][col] = mat_VT[11][4 * row + col]
 
-        for i in range(0, 3):
-            ctw[i][0] = h[4 * i + 3]  # // Translation
-            for j in range(0, 3):
-                cRw[i][j] = h[4 * i + j]  # // Rotation
+        m_projectionMatrix = np.matmul(m_imgscale, m_projectionMatrix)
+        m_projectionMatrix = np.matmul(m_projectionMatrix, m_worldscale)
 
-        P = np.array([[cRw[0][0], cRw[0][1], cRw[0][2], ctw[0][0]],
-                      [cRw[1][0], cRw[1][1], cRw[1][2], ctw[1][0]],
-                      [cRw[2][0], cRw[2][1], cRw[2][2], ctw[2][0]]])
+        return m_projectionMatrix
 
-        # Undo the rescaling
-        # T.P.U
-        P = np.matmul(m_imgscale, P)
-        P = np.matmul(P, m_worldscale)
-
-        return P
-
-    def compute_pose_from_pmatrix(self, P):
+    def compute_pose_from_pmatrix(self, m_projectionMatrix):
         """
         Decomposes the P matrix into K, R, t, and the 3 euler angles
         :param P: Projection matrix
         :return:
         """
-        K, R, t, eular_a, euler_b, euler_c, euler_d = decomposeProjectionMatrix(P)
 
-        return np.array([t[0] / t[3], t[1] / t[3], t[2] / t[3]])
+        _, _, mat_VT = compute_SVD(m_projectionMatrix)
 
-    def sprt_ransac_p6pdlt(self, pts3d, pts2d, min_inlier_ratio, number_of_samples):
+        position = np.zeros(3)
+
+        for i in range(0, 3):
+            position[i] = mat_VT[3][i] / mat_VT[3][3]
+
+        # get the viewing direction of the camera, see Hartley & Zisserman, 2nd ed., pages 160 - 161
+        # compute the determinant of the 3x3 part of the projection matrix
+        # det = m_projectionMatrix[0][0] * m_projectionMatrix[1][1] * m_projectionMatrix[2][2] +
+        #       m_projectionMatrix[0][1] * m_projectionMatrix[1][2] * m_projectionMatrix[2][0] +
+        #       m_projectionMatrix[0][2] * m_projectionMatrix[1][0] * m_projectionMatrix[2][1] -
+        #       m_projectionMatrix[0][2] * m_projectionMatrix[1][1] * m_projectionMatrix[2][0] -
+        #       m_projectionMatrix[0][1] * m_projectionMatrix[1][0] * m_projectionMatrix[2][2] -
+        #       m_projectionMatrix[0][0] * m_projectionMatrix[1][2] * m_projectionMatrix[2][1]
+
+        # remember that the camera in reconstructions computed by Bundler looks
+        # down the negative z-axis instead of the positive z-axis.
+        # So we have to multiply the orientation with -1.0
+        # for i in range(0, 3):
+        #    orientation[i] = - m_projectionMatrix[2][i] * det
+
+        return position
+
+    def sprt_ransac_p6pdlt(self, pts3d, pts2d, nb_correspondences, min_inlier_ratio):#min_inlier_ratio, min_consensus_size):
         """
         SPRT-RANSAC function converted from c++ ACG-Localizer [1]
         :param pts3d: 3D points
         :param pts2d: 2D points
+        :param nb_correspondences: Number of correspondences
         :param min_inlier_ratio: min. inlier ratio to consider a pose
-        :param number_of_samples:
-        :return: sucess: 3x1 position, n. inliers | fail: None, n. inliers
+        :return: sucess: P matrix, n. inliers | fail: None, n. inliers
         """
-        # Size of the best inlier set
-        size_inlier_set = 0
 
-        nb_correspondences = len(pts3d) #10 # TODO:
-
-        minimal_consensus_size = number_of_samples
-
-        # TODO: this
-        # If the number of correspondences is lower than the number of required points to dlt
-        if nb_correspondences < minimal_consensus_size:
+        if nb_correspondences < self.number_of_samples:
             return None, 0
 
-        # Number of inliers found
-        inlier_found = 0
+        # Set the inlier ratio
+        self.inlier_ratio = np.max((min_inlier_ratio, self.number_of_samples / float(nb_correspondences)))
 
-        # Compute inlier ratio
-        inlier_ratio = np.max((min_inlier_ratio, float(number_of_samples) / float(nb_correspondences)))
 
         # Max steps ransac has to take
-        max_steps = self.get_max_ransac_steps(inlier_ratio)
+        max_steps = self.get_max_ransac_steps(self.inlier_ratio)
 
-        #
+        # Size of the best inlier set
+        size_inlier_set = self.number_of_samples - 1
+
         new_inlier_found = 0
 
-        inlier = []
-        storedP = None
-        #storedR = None
-        #storedt = None
-
-        self.epsilon_i[0] = inlier_ratio
+        # Initialize the 0-th SPRT test
+        self.epsilon_i[0] = self.inlier_ratio
         self.delta_i[0] = 0.01
         self.A_i[0] = self.sprt_compute_A(self.epsilon_i[0], self.delta_i[0])
 
         current_test = 0
         old_test = -1
+
+
+        eval_1 = self.delta_i[0] / self.epsilon_i[0]
+        eval_0 = (1.0 - self.delta_i[0]) / (1.0 - self.epsilon_i[0])
+        lambda_v = 1.0
+
+        delta_hat = self.delta_i[0]
+        old_ratio = self.inlier_ratio
+        nb_rejected = 1.0
+        bad_model = False
+
+        taken_samples = 0
+        self.k_i[0] = 0
+
+        inlier = []
+        storedP = None
 
         """elapsed_time_total = 0.0
         elapsed_time_sec = 0.0
@@ -511,19 +534,6 @@ class SPRTRANSACDLT:
         time_out_timer = None
         time_out_timer.Init()
         time_out_timer.Start()"""
-
-        eval_1 = self.delta_i[0] / self.epsilon_i[0]
-        eval_0 = (1.0 - self.delta_i[0]) / (1.0 - self.epsilon_i[0])
-        lambda_v = 1.0
-
-        delta_hat = self.delta_i[0]
-        old_ratio = inlier_ratio
-        nb_rejected = 1.0
-        bad_model = False
-
-        taken_samples = 0
-        self.k_i[0] = 0
-
 
         while True:
 
@@ -570,40 +580,31 @@ class SPRTRANSACDLT:
                     print "[RANSAC] Error: Therefore, we stop searching for a better model here. (Maybe you want to use SCRAMSAC, if applicable, to get rid of outlier!)"
                     break
 
-
-                # take a random sample from the set of correspondences
-                pseudo_random_indexes = random.sample(xrange(len(pts3d)), 6)
-
-                # add the correspondences
-                x = []
-                wX = []
-                for pr in pseudo_random_indexes:
-                    x.append(pts2d[pr])
-                    wX.append(pts3d[pr])
-                x = np.array(x)
-                wX = np.array(wX)
+                # Random sampling
+                wX, x = self.compute_pseudo_random_indexes(pts3d, pts2d)
 
                 # Compute model
-                P = self.pose_dlt(wX, x)
+                P = self.pose_dlt_acg(wX, x)
 
-                # compute number of inlier to the hypothesis, evaluate the current SPRT test inlier_found = 0;
+                # compute number of inlier to the hypothesis, evaluate the current SPRT test
                 inlier_found = 0
-                lambda_i = 1.0
+                lambda_v = 1.0
                 bad_model = False
 
                 # Compute residuals
-                residuals = self.compute_residuals(wX, x, P)
-
                 for i in range(len(wX)):
+                    residual = self.evaluate_correspondence(wX[i], x[i], P)
+
+                #for i in range(len(wX)):
                     # If it is an inlier
                     #Compute distance between projection
-                    if residuals[i] <= self.error:
-                        lambda_i *= eval_1
+                    if residual <= self.reproj_error:
+                        lambda_v *= eval_1
                         inlier_found += 1
                     else:
-                        lambda_i *= eval_0
+                        lambda_v *= eval_0
 
-                    if lambda_i > self.A_i[current_test]:
+                    if lambda_v > self.A_i[current_test]:
                         bad_model = True
                         break
 
@@ -630,21 +631,19 @@ class SPRTRANSACDLT:
                     storedP = P
 
                     # compute inlier
-                    inlier = []
-                    for ii in range(len(residuals)):
-                        if residuals[ii] < self.error:
-                            inlier.append(pseudo_random_indexes[ii])
+                    #inlier = []
+                    #for ii in range(len(residuals)):
+                    #    if residuals[ii] < self.error:
+                    #        inlier.append(pseudo_random_indexes[ii])
 
                     #TODO: this optimization
                     # do Local Optimization(LO) - steps( if possible!)
-                    """
-                    nb_LO_samples = np.max((self.number_of_samples, np.min((inlier_found / 2, self.max_number_of_LO_samples))))
+                    """nb_LO_samples = np.max((self.number_of_samples, np.min((inlier_found / 2, self.max_number_of_LO_samples))))
                     for lo_steps in range(self.nb_lo_steps):
-                        #random_number_gen.generate_pseudorandom_numbers_unique( (uint32_t) 0, (uint32_t) (inlier.size() - 1), nb_LO_samples, LO_randomly_choosen_corr_indices );
-                        pseudo_random_inliers = random.sample(xrange(nb_LO_samples), 6)
+
+                        pseudo_random_inliers = random.sample(xrange(nb_LO_samples), self.max_number_of_LO_samples)
                         # generate hypothesis
                         # add the correspondences
-                        #clear_solver();
 
                         owX = []
                         ox = []
@@ -656,50 +655,36 @@ class SPRTRANSACDLT:
                         owX = np.array(owX)
                         ox = np.array(ox)
 
-                        #for counter in range(0, nb_LO_samples):
-                        #    add_correspondence(c1, c2, inlier[LO_randomly_choosen_corr_indices[counter]]);
-
-
-                        # compute hypothesis
-                        #if (!solve_system())
-                        #    continue;
-                        loR, lot = pose_dlt(owX, ox)
-
-                        loP = np.array([[loR[0][0], loR[0][1], loR[0][2], lot[0][0]],
-                                      [loR[1][0], loR[1][1], loR[1][2], lot[1][0]],
-                                      [loR[2][0], loR[2][1], loR[2][2], lot[2][0]]])
-
+                        loP = self.pose_dlt(owX, ox)
 
                         # compute inlier to the hypothesis
                         new_found_inlier = 0
-                        lo_residuals = compute_residuals(owX, ox, loP)
 
-                        #for (std::vector < uint32_t >::const_iterator it = correspondence_indices.begin(); it != correspondence_indices.end(); ++it ){
-                        for res in residuals:
-                        #    if (evaluate_correspondece(c1, c2, *it)):
-                            if res <= self.error:
+                        for i in range(len(pts3d)):
+                            lo_residual = self.compute_residuals(owX[i], ox[i], loP)
+
+                            if lo_residual <= self.error:
                                 new_found_inlier += 1
-                        #}
 
                         # update found model if new best hypothesis
                         if new_found_inlier > inlier_found:
                             inlier_found = new_found_inlier
-                            storedP = loP #store_hypothesis();
-                    """
+                            storedP = loP"""
 
-                    old_ratio = inlier_ratio
-                    inlier_ratio = np.max((inlier_ratio, float(inlier_found) / float(nb_correspondences )))
-                    max_steps = self.get_max_ransac_steps(inlier_ratio)
+
+                    old_ratio = self.inlier_ratio
+                    self.inlier_ratio = np.max((self.inlier_ratio, float(inlier_found) / float(nb_correspondences )))
+                    max_steps = self.get_max_ransac_steps(self.inlier_ratio)
                     size_inlier_set = inlier_found
 
                     # design a new test if needed
                     # the check must be done to avoid designing a test for an inlier ratio below the specified minimal inlier ratio
-                    if  old_ratio < inlier_ratio:
+                    if  old_ratio < self.inlier_ratio:
                         current_test += 1
                         self.k_i[current_test] = 0
-                        self.epsilon_i[current_test] = inlier_ratio
+                        self.epsilon_i[current_test] = self.inlier_ratio
                         self.delta_i[current_test] = delta_hat
-                        self.A_i[current_test] = self.sprt_compute_A(inlier_ratio, delta_hat)
+                        self.A_i[current_test] = self.sprt_compute_A(self.inlier_ratio, delta_hat)
                 # end Alg 2, if biggest support
             # end for
 
@@ -708,18 +693,41 @@ class SPRTRANSACDLT:
             # adjust the number of steps SPRT RANSAC has to take
             if old_test != current_test:
                 old_test = current_test
-                max_steps = self.SPRT_get_max_sprt_ransac_steps(inlier_ratio, current_test)
+                max_steps = self.SPRT_get_max_sprt_ransac_steps(self.inlier_ratio, current_test)
             else:
                 break
 
         # end while
+        return storedP, size_inlier_set
 
-        Cmat = None
+    def compute_pose(self, pts3d, pts2d, nb_correspondences, min_inlier_ratio):
+        """
+        Computes and validates the hypothesised P matrix using the found correspondences
+        :param pts3d: 3D correspondences
+        :param pts2d: 2D correspondences
+        :param nb_correspondences: number of correspondences
+        :param min_inlier_ratio: min. inlier ratio
+        :return: Success: P, n. inliers | Fail: None, n. inliers
+        """
 
-        if storedP is not None:
-            Cmat = self.compute_pose_from_pmatrix(storedP)
+        # Hypothesise P matrix using the found correspondences
+        P, n_inliers = self.sprt_ransac_p6pdlt(pts3d, pts2d, nb_correspondences, min_inlier_ratio)
 
-        return Cmat, size_inlier_set
+        # If P was successful, then we compute the actual number of inliers
+        if P is not None and 6 <= n_inliers:
+
+            n_inliers = 0
+
+            for i in range(len(pts3d)):
+
+                residual = self.evaluate_correspondence(pts3d[i], pts2d[i], P)
+
+                if residual <= self.reproj_error:
+                    n_inliers += 1
+
+            return self.compute_pose_from_pmatrix(P), n_inliers
+        else:
+            return None, n_inliers
 
 
 
