@@ -1,6 +1,4 @@
 import psycopg2 as ps2
-import numpy as np
-import array
 import time
 
 #######################
@@ -137,40 +135,3 @@ class PGWrapper:
         :return:
         """
         return self.overall_time
-
-    #################################################
-    # Auxiliars for byte128 <-> float128 convertion #
-    #################################################
-    def float2binarystring(self, nparray):
-        """
-        Converts a 128float array to uchar (escaped bytes)
-        :param nparray: 128float
-        :return: binary string
-        """
-
-        nparray = np.floor(nparray * 512.0 + 0.5)
-
-        l = nparray.astype(dtype=int).tolist()
-
-        b = array.array('B', l).tostring()
-
-        binstring = str(ps2.Binary(b))[1:-8]
-        binstring = binstring.replace("''", "\'")
-
-        return binstring
-
-    def binarystring2float(self, b):
-        """
-        Converts binary string to 128float
-        :param b: binary string
-        :return: 128float numpy array
-        """
-        return np.array(bytearray(b)[:], dtype=float) / 512.0
-
-    def float128tostring(self, d):
-        """
-        Converts a 128float array to postgresql float ARRAY[128] string
-        :param d: 128float
-        :return: float ARRAY[128] string
-        """
-        return "ARRAY%s" % str(d.tolist())
