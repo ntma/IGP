@@ -20,20 +20,26 @@ To achieve this goal, we will divide the project into two stages: in the first w
 ### Related Algorithms ###
 * Vocabulary Prioritized Search (VPS) [1]
 * Active Search (AS) [1]
-* SPRT-RANSAC (converted from ACG-Localizer c++ source code [5] to python) [4]
-* Direct Linear Transform (DLT) from 6 correspondences [4]
+* SPRT-RANSAC (converted from ACG-Localizer c++ source code [4] to python) [3]
+* Direct Linear Transform (DLT) from 6 correspondences [3]
 
 ### Datasets ###
 
 To benchmark our code, at the moment we are using:
-* a 100K vocabulary [6] to support the fine/coarse vocabularies required by [1];
-* Dubrovnik dataset [7] which contains 6044 database images, Structure-from-Motion model and 800 additional query images with ground truth measured in meters provided by [3]. 
+* a 100K generic vocabulary [5] to support the fine/coarse vocabularies required by [1];
+* Dubrovnik dataset [6] which contains 6044 database images, Structure-from-Motion model and 800 additional query images with ground truth measured in meters provided by [2]. 
 
 More datasets will be tested soon.
 
 ### Benchmarks ###
 
-At the moment we performed a minimal benchmark on query speed where we queried 10 images with our implementation. After "warming" the database, queries varied from 5-10 seconds per image. Precision is still inaccurate.
+The following statistics were obtained with the current implementation:
+* Success pose: 523 from 800 queries (65.37%)
+* Overall time: 28 minutes
+* Mean time/query: 2 seconds
+* Mean position error: ~25 meters
+
+As an additional note, 50% of the successful queries have an error below 2 meters. We are currently fixing the query pipeline to improve the success geocoding rate.
 
 ### Setting the Database ###
 * Coming soon
@@ -44,9 +50,8 @@ At the moment we performed a minimal benchmark on query speed where we queried 1
 ### References ###
 
 1. Sattler, T., Leibe, B., & Kobbelt, L. (2016). Efficient & Effective Prioritized Matching for Large-Scale Image-Based Localization. Ieee Transactions on Pattern Analysis and Machine Intelligence, X(1). http://doi.org/10.1109/TPAMI.2016.2611662
-2. H. Jegou, M. Douze, and C. Schmid, “On the burstiness of visual elements,” in CVPR, 2009
-3. Li, Y., Snavely, N., Huttenlocher, D., & Fua, P. (2012). Worldwide Pose Estimation using 3D Point Clouds. Computer Vision - ECCV, 15–29. http://doi.org/10.1007/978-3-642-33718-5_2
-4. Chum, O., & Matas, J. (2008). Optimal Randomized RANSAC. IEEE Trans. Pattern Anal. Mach. Intell., 30(8), 1472–1482. http://doi.org/10.1109/TPAMI.2007.70787
-5. ACG-Localizer: https://www.graphics.rwth-aachen.de/software/image-localization
-6. 100K Vocabulary: http://lear.inrialpes.fr/people/jegou/data.php
-7. Dubrovnik dataset: http://www.cs.cornell.edu/projects/p2f/
+2. Li, Y., Snavely, N., Huttenlocher, D., & Fua, P. (2012). Worldwide Pose Estimation using 3D Point Clouds. Computer Vision - ECCV, 15–29. http://doi.org/10.1007/978-3-642-33718-5_2
+3. Chum, O., & Matas, J. (2008). Optimal Randomized RANSAC. IEEE Trans. Pattern Anal. Mach. Intell., 30(8), 1472–1482. http://doi.org/10.1109/TPAMI.2007.70787
+4. ACG-Localizer: https://www.graphics.rwth-aachen.de/software/image-localization
+5. 100K generic vocabulary: https://www.graphics.rwth-aachen.de/software/image-localization
+6. Dubrovnik dataset: http://www.cs.cornell.edu/projects/p2f/
