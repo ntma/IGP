@@ -19,7 +19,9 @@ def euclidean_distance(v1, v2):
     :param v2: vector2
     :return: euclidean distance
     """
-    return np.power(np.linalg.norm(v1 - v2), 2.0)
+    diff = v1 - v2
+
+    return np.dot(diff, diff)
 
 
 def delta_view_dir(v1, v2):
@@ -47,7 +49,7 @@ def radians2degrees(a):
     :param a: angle in radians
     :return: angle in degrees
     """
-    return a * 306.0 / (2.0 * np.pi)
+    return a * 360.0 / (2.0 * np.pi)
 
 
 def bundler_extract_viewdir(R):
@@ -85,11 +87,12 @@ def project_point(P, point):
     :param point: points vector
     :return: position vector
     """
-    projpoint = np.matmul(P, (np.array([point[0], point[1], point[2], 1.0])).reshape(4, 1))
 
-    return np.array([projpoint[0][0] / projpoint[2][0],
-                     projpoint[1][0] / projpoint[2][0]])
+    p2 = np.append(point, [1.0]).reshape((4, 1))
 
+    projpoint = np.dot(P, p2)
 
+    projpoint[0][0] /= projpoint[2][0]
+    projpoint[1][0] /= projpoint[2][0]
 
-
+    return projpoint.reshape(3)[:-1]

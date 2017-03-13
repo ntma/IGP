@@ -1,4 +1,3 @@
-import time
 from pyflann import *
 
 
@@ -12,11 +11,6 @@ class BagOfFeatures:
 
         # For kmeans indexing
         self.coarse_bof = FLANN()
-
-        # Runtime search for k-nn
-        self.rtknn = FLANN()
-
-        self.overall_time = 0.0
 
     def create_fine_kdtree(self, words):
         """
@@ -71,21 +65,6 @@ class BagOfFeatures:
 
         return result, dists
 
-    def search_runtime_nn(self, qdesc, dbdescs, nn, nc=1):
-        """
-        Linear search for the NN. Built in runtime.
-        :param qdesc: query features
-        :param dbdescs: db features
-        :param nc: number of cores to use (0=auto choose)
-        :return: (indexes, distances)
-        """
-
-        t_start = time.time()
-        res, dist = self.rtknn.nn(dbdescs, qdesc, nn, algorithm='linear', cores=nc)
-        self.overall_time += time.time() - t_start
-
-        return res, dist
-
     def get_parents_at_level_L(self, L):
         """
         Gets the parent id's at level L
@@ -93,10 +72,3 @@ class BagOfFeatures:
         :return: max_level_ids, cluster_ids
         """
         return self.coarse_bof.get_parents_at_level_L_double(L)
-
-    def get_overall_time(self):
-        """
-        Returns the overall time spent by this module
-        :return: time in floating seconds
-        """
-        return self.overall_time

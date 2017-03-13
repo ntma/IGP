@@ -1,6 +1,8 @@
 from src.utils.geometry import compute_SVD, project_point
+from src.utils.geometry import euclidean_distance
 import random
 import numpy as np
+import logging as lg
 
 
 ##############
@@ -30,12 +32,12 @@ class SPRTRANSACDLT:
         self.number_of_samples = 6
 
         self.max_number_of_LO_samples = 12 # TODO: keep this?
-        self.nb_lo_steps = 10
+        self.nb_lo_steps = 20
 
         self.LOG_5_PER = -2.99573
 
         # By the paper efficient and effective (squared reprojection error)
-        self.reproj_error = 10 #np.sqrt(10)
+        self.reproj_error = 10
 
         self.SPRT_eps_val = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         self.SPRT_delta_val = [0.01, 0.02, 0.07, 0.12, 0.17, 0.22, 0.27, 0.32, 0.37, 0.42]
@@ -103,8 +105,6 @@ class SPRTRANSACDLT:
                                        1.9284, 1.9444, 2.0277, 2.1195, 2.2239, 2.3455, 2.4908, 2.6696, 2.8972, 3.2,
                                        1.4386, 1.4461, 1.4822, 1.5192, 1.5591, 1.6033, 1.6535, 1.7119, 1.7814, 1.8666,
                                        1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0])
-
-        self.SPRT_h_i_val.reshape((8, 8, 10)) # TODO: is this shape right?
 
     #################################
     # SPRT-RANSAC Support functions #
@@ -210,7 +210,7 @@ class SPRTRANSACDLT:
                 else:
                     idx_delta_i += 1
 
-            x_old = self.SPRT_h_i_val[idx_eps][idx_eps_i][idx_delta_i]
+            x_old = self.SPRT_h_i_val[idx_eps * 8 * 10 + idx_eps_i * 10 + idx_delta_i]
 
             if x_old == 0.0:
                 x_old = 100.0
@@ -287,10 +287,7 @@ class SPRTRANSACDLT:
 
         projpoint = project_point(P, pt3d)
 
-        dx = pt2d[0] - projpoint[0]
-        dy = pt2d[1] - projpoint[1]
-
-        return dx*dx + dy*dy#np.power(np.linalg.norm(pt2d - projpoint), 2.0)
+        return euclidean_distance(pt2d, projpoint)
 
     def compute_pseudo_random_indexes(self, pts3d, pts2d):
         # take a random sample from the set of correspondences
@@ -300,19 +297,12 @@ class SPRTRANSACDLT:
         x  = pts2d[pseudo_random_indexes] # numpy hack with list of indexes
         wX = pts3d[pseudo_random_indexes] # numpy hack with list of indexes
 
-        """x = []
-        wX = []
-        for pr in pseudo_random_indexes:
-            x.append(pts2d[pr])
-            wX.append(pts3d[pr])"""
-
         return wX, x
-
 
     #########################
     # DLT Support functions #
     #########################
-    def scaleCorrespondences(self, wX, x):
+    def scale_correspondences(self, wX, x):
         """
         Normalizes the 3D-2D correspondences
         :param wX: 3D points
@@ -320,8 +310,8 @@ class SPRTRANSACDLT:
         :return: success, scaled3D, scaled2D, scaledImgMat, scaledWorldMat
         """
         # Center points for scaling
-        center2D = np.array([0.0, 0.0])
-        center3D = np.array([0.0, 0.0, 0.0])
+        center2D = np.zeros(2)#np.array([0.0, 0.0])
+        center3D = np.zeros(3)#np.array([0.0, 0.0, 0.0])
 
         # Determine c.o.g (Center of Gravity?)
         n = 1.0
@@ -336,29 +326,23 @@ class SPRTRANSACDLT:
         scale3D = 0.0
         scale2D = 0.0
 
-        scaledwX = []
-        scaledx = []
+        scaledwX = wX.copy()
+        scaledx = x.copy()
 
         for i in range(len(wX)):
-            pt2d = np.subtract(x[i], center2D)
-            pt3d = np.subtract(wX[i], center3D)
+            scaledx[i] -= center2D
+            scaledwX[i] -= center3D
 
-            scale2D = scale2D * ((n - 1.0) / n) + np.linalg.norm(pt2d) * (1.0 / n)
-            scale3D = scale3D * ((n - 1.0) / n) + np.linalg.norm(pt3d) * (1.0 / n)
-
-            scaledx.append(pt2d)
-            scaledwX.append(pt3d)
+            scale2D = scale2D * ((n - 1.0) / n) + np.linalg.norm(scaledx[i]) * (1.0 / n)
+            scale3D = scale3D * ((n - 1.0) / n) + np.linalg.norm(scaledwX[i]) * (1.0 / n)
 
             n += 1.0
-
-        scaledx = np.array(scaledx)
-        scaledwX = np.array(scaledwX)
 
         if abs(scale2D) < 1e-12 or abs(scale3D) < 1e-12:
             return False, None, None, None, None
 
-        scale2D = 1.41421 / scale2D # sqrt(2)
-        scale3D = 1.73205 / scale3D # sqrt(3)
+        scale2D = 1.41421 / scale2D  # sqrt(2)
+        scale3D = 1.73205 / scale3D  # sqrt(3)
 
         for i in range(len(scaledwX)):
             scaledx[i] *= scale2D
@@ -393,43 +377,46 @@ class SPRTRANSACDLT:
         mat_A = np.zeros((nrows, ncols))
         vec_point = np.zeros(4)
 
-        m_flag, wX, x, m_imgscale, m_worldscale = self.scaleCorrespondences(unscaledwX, unscaledx)
+        m_flag, wX, x, m_imgscale, m_worldscale = self.scale_correspondences(unscaledwX, unscaledx)
+
+        if not m_flag:
+            return None
 
         for corr in range(0, endCorr):
-            vec_point[ 0 ] = wX[corr][0]
-            vec_point[ 1 ] = wX[corr][1]
-            vec_point[ 2 ] = wX[corr][2]
-            vec_point[ 3 ] = 1.0
+            vec_point[0] = wX[corr][0]
+            vec_point[1] = wX[corr][1]
+            vec_point[2] = wX[corr][2]
+            vec_point[3] = 1.0
 
-            mat_A[3*corr][0] = - vec_point[ 0 ]
-            mat_A[3*corr][1] = - vec_point[ 1 ]
-            mat_A[3*corr][2] = - vec_point[ 2 ]
-            mat_A[3*corr][3] = - vec_point[ 3 ]
+            mat_A[3*corr][0] = - vec_point[0]
+            mat_A[3*corr][1] = - vec_point[1]
+            mat_A[3*corr][2] = - vec_point[2]
+            mat_A[3*corr][3] = - vec_point[3]
 
-            mat_A[3*corr][8 ]= vec_point[ 0 ] * x[corr][0]
-            mat_A[3*corr][9 ]= vec_point[ 1 ] * x[corr][0]
-            mat_A[3*corr][10] = vec_point[ 2 ] * x[corr][0]
-            mat_A[3*corr][11] = vec_point[ 3 ] * x[corr][0]
+            mat_A[3*corr][8] = vec_point[0] * x[corr][0]
+            mat_A[3*corr][9] = vec_point[1] * x[corr][0]
+            mat_A[3*corr][10] = vec_point[2] * x[corr][0]
+            mat_A[3*corr][11] = vec_point[3] * x[corr][0]
 
-            mat_A[3*corr + 1][ 4 ] = - vec_point[ 0 ]
-            mat_A[3*corr + 1][ 5 ] = - vec_point[ 1 ]
-            mat_A[3*corr + 1][ 6 ] = - vec_point[ 2 ]
-            mat_A[3*corr + 1][ 7 ] = - vec_point[ 3 ]
+            mat_A[3*corr + 1][4] = - vec_point[0]
+            mat_A[3*corr + 1][5] = - vec_point[1]
+            mat_A[3*corr + 1][6] = - vec_point[2]
+            mat_A[3*corr + 1][7] = - vec_point[3]
 
-            mat_A[3*corr + 1][8  ]= vec_point[ 0 ] *  x[corr][1]
-            mat_A[3*corr + 1][9  ]= vec_point[ 1 ] *  x[corr][1]
-            mat_A[3*corr + 1][10 ] = vec_point[ 2 ] * x[corr][1]
-            mat_A[3*corr + 1][11 ] = vec_point[ 3 ] * x[corr][1]
+            mat_A[3*corr + 1][8] = vec_point[0] * x[corr][1]
+            mat_A[3*corr + 1][9] = vec_point[1] * x[corr][1]
+            mat_A[3*corr + 1][10] = vec_point[2] * x[corr][1]
+            mat_A[3*corr + 1][11] = vec_point[3] * x[corr][1]
 
-            mat_A[3*corr + 2][0] = -vec_point[ 0 ] * x[corr][1]
-            mat_A[3*corr + 2][1] = -vec_point[ 1 ] * x[corr][1]
-            mat_A[3*corr + 2][2] = -vec_point[ 2 ] * x[corr][1]
-            mat_A[3*corr + 2][3] = -vec_point[ 3 ] * x[corr][1]
+            mat_A[3*corr + 2][0] = - vec_point[0] * x[corr][1]
+            mat_A[3*corr + 2][1] = - vec_point[1] * x[corr][1]
+            mat_A[3*corr + 2][2] = - vec_point[2] * x[corr][1]
+            mat_A[3*corr + 2][3] = - vec_point[3] * x[corr][1]
 
-            mat_A[3*corr + 2][4 ] = vec_point[ 0 ] * x[corr][0]
-            mat_A[3*corr + 2][5 ] = vec_point[ 1 ] * x[corr][0]
-            mat_A[3*corr + 2][6 ] = vec_point[ 2 ] * x[corr][0]
-            mat_A[3*corr + 2][7 ] = vec_point[ 3 ] * x[corr][0]
+            mat_A[3*corr + 2][4] = vec_point[0] * x[corr][0]
+            mat_A[3*corr + 2][5] = vec_point[1] * x[corr][0]
+            mat_A[3*corr + 2][6] = vec_point[2] * x[corr][0]
+            mat_A[3*corr + 2][7] = vec_point[3] * x[corr][0]
 
         _, _, mat_VT = compute_SVD(mat_A)
 
@@ -474,7 +461,7 @@ class SPRTRANSACDLT:
 
         return position
 
-    def sprt_ransac_p6pdlt(self, pts3d, pts2d, nb_correspondences, min_inlier_ratio):#min_inlier_ratio, min_consensus_size):
+    def sprt_ransac_p6pdlt(self, pts3d, pts2d, nb_correspondences, min_inlier_ratio):
         """
         SPRT-RANSAC function converted from c++ ACG-Localizer [1]
         :param pts3d: 3D points
@@ -488,11 +475,11 @@ class SPRTRANSACDLT:
             return None, 0
 
         # Set the inlier ratio
-        self.inlier_ratio = np.max((min_inlier_ratio, self.number_of_samples / float(nb_correspondences)))
+        inlier_ratio = np.max((min_inlier_ratio, float(self.number_of_samples) / float(nb_correspondences)))
 
 
         # Max steps ransac has to take
-        max_steps = self.get_max_ransac_steps(self.inlier_ratio)
+        max_steps = self.get_max_ransac_steps(inlier_ratio)
 
         # Size of the best inlier set
         size_inlier_set = self.number_of_samples - 1
@@ -500,7 +487,7 @@ class SPRTRANSACDLT:
         new_inlier_found = 0
 
         # Initialize the 0-th SPRT test
-        self.epsilon_i[0] = self.inlier_ratio
+        self.epsilon_i[0] = inlier_ratio
         self.delta_i[0] = 0.01
         self.A_i[0] = self.sprt_compute_A(self.epsilon_i[0], self.delta_i[0])
 
@@ -513,14 +500,14 @@ class SPRTRANSACDLT:
         lambda_v = 1.0
 
         delta_hat = self.delta_i[0]
-        old_ratio = self.inlier_ratio
+        old_ratio = inlier_ratio
         nb_rejected = 1.0
         bad_model = False
 
         taken_samples = 0
         self.k_i[0] = 0
 
-        inlier = []
+        #inlier = []
         storedP = None
 
         """elapsed_time_total = 0.0
@@ -576,8 +563,8 @@ class SPRTRANSACDLT:
                 if taken_samples == 0:
                     taken_samples -= 1
 
-                    print "[RANSAC] Error: The number of samples taken exceeds " + str(taken_samples) + " ( 2^64-1 ) which is the maximal number representable by a uint32_t."
-                    print "[RANSAC] Error: Therefore, we stop searching for a better model here. (Maybe you want to use SCRAMSAC, if applicable, to get rid of outlier!)"
+                    lg.debug("[RANSAC] Error: The number of samples taken exceeds " + str(taken_samples) + " ( 2^64-1 ) which is the maximal number representable by a uint32_t.")
+                    lg.debug("[RANSAC] Error: Therefore, we stop searching for a better model here. (Maybe you want to use SCRAMSAC, if applicable, to get rid of outlier!)")
                     break
 
                 # Random sampling
@@ -586,18 +573,20 @@ class SPRTRANSACDLT:
                 # Compute model
                 P = self.pose_dlt_acg(wX, x)
 
+                if P is None:
+                    continue
+
                 # compute number of inlier to the hypothesis, evaluate the current SPRT test
                 inlier_found = 0
                 lambda_v = 1.0
                 bad_model = False
 
                 # Compute residuals
-                for i in range(len(wX)):
-                    residual = self.evaluate_correspondence(wX[i], x[i], P)
+                for i in range(len(pts3d)):
+                    residual = self.evaluate_correspondence(pts3d[i], pts2d[i], P)
 
-                #for i in range(len(wX)):
                     # If it is an inlier
-                    #Compute distance between projection
+                    # Compute distance between projection
                     if residual <= self.reproj_error:
                         lambda_v *= eval_1
                         inlier_found += 1
@@ -607,7 +596,6 @@ class SPRTRANSACDLT:
                     if lambda_v > self.A_i[current_test]:
                         bad_model = True
                         break
-
 
                 # Algorithm 2, if model is rejected
                 if bad_model:
@@ -631,17 +619,16 @@ class SPRTRANSACDLT:
                     storedP = P
 
                     # compute inlier
-                    #inlier = []
-                    #for ii in range(len(residuals)):
-                    #    if residuals[ii] < self.error:
-                    #        inlier.append(pseudo_random_indexes[ii])
+                    inlier = []
+                    for ii in range(len(pts3d)):
+                        if self.evaluate_correspondence(pts3d[ii], pts2d[ii], P) <= self.reproj_error:
+                            inlier.append(ii)
 
-                    #TODO: this optimization
                     # do Local Optimization(LO) - steps( if possible!)
-                    """nb_LO_samples = np.max((self.number_of_samples, np.min((inlier_found / 2, self.max_number_of_LO_samples))))
+                    nb_LO_samples = np.max((self.number_of_samples, np.min((inlier_found / 2, self.max_number_of_LO_samples))))
                     for lo_steps in range(self.nb_lo_steps):
 
-                        pseudo_random_inliers = random.sample(xrange(nb_LO_samples), self.max_number_of_LO_samples)
+                        pseudo_random_inliers = random.sample(xrange(len(inlier)), nb_LO_samples)
                         # generate hypothesis
                         # add the correspondences
 
@@ -655,36 +642,39 @@ class SPRTRANSACDLT:
                         owX = np.array(owX)
                         ox = np.array(ox)
 
-                        loP = self.pose_dlt(owX, ox)
+                        loP = self.pose_dlt_acg(owX, ox)
+
+                        if loP is None:
+                            continue
 
                         # compute inlier to the hypothesis
                         new_found_inlier = 0
 
                         for i in range(len(pts3d)):
-                            lo_residual = self.compute_residuals(owX[i], ox[i], loP)
+                            lo_residual = self.evaluate_correspondence(pts3d[i], pts2d[i], loP)
 
-                            if lo_residual <= self.error:
+                            if lo_residual <= self.reproj_error:
                                 new_found_inlier += 1
 
                         # update found model if new best hypothesis
                         if new_found_inlier > inlier_found:
                             inlier_found = new_found_inlier
-                            storedP = loP"""
+                            storedP = loP
 
-
-                    old_ratio = self.inlier_ratio
-                    self.inlier_ratio = np.max((self.inlier_ratio, float(inlier_found) / float(nb_correspondences )))
-                    max_steps = self.get_max_ransac_steps(self.inlier_ratio)
+                    old_ratio = inlier_ratio
+                    inlier_ratio = max((inlier_ratio, float(inlier_found) / float(nb_correspondences )))
+                    max_steps = self.get_max_ransac_steps(inlier_ratio)
                     size_inlier_set = inlier_found
 
-                    # design a new test if needed
-                    # the check must be done to avoid designing a test for an inlier ratio below the specified minimal inlier ratio
-                    if  old_ratio < self.inlier_ratio:
+                    # Design a new test if needed.
+                    # The check must be done to avoid designing a test for an inlier
+                    # ratio below the specified minimal inlier ratio.
+                    if old_ratio < inlier_ratio:
                         current_test += 1
                         self.k_i[current_test] = 0
-                        self.epsilon_i[current_test] = self.inlier_ratio
+                        self.epsilon_i[current_test] = inlier_ratio
                         self.delta_i[current_test] = delta_hat
-                        self.A_i[current_test] = self.sprt_compute_A(self.inlier_ratio, delta_hat)
+                        self.A_i[current_test] = self.sprt_compute_A(inlier_ratio, delta_hat)
                 # end Alg 2, if biggest support
             # end for
 
@@ -693,9 +683,11 @@ class SPRTRANSACDLT:
             # adjust the number of steps SPRT RANSAC has to take
             if old_test != current_test:
                 old_test = current_test
-                max_steps = self.SPRT_get_max_sprt_ransac_steps(self.inlier_ratio, current_test)
+                max_steps = self.SPRT_get_max_sprt_ransac_steps(inlier_ratio, current_test)
             else:
                 break
+
+        lg.debug("[RANSAC] SPRT-LO-RANSAC took " + str(taken_samples) + " samples using " + str(current_test + 1) + " SPRTs, found " + str(size_inlier_set) + " inlier ( " +str(inlier_ratio) + " % ) ")
 
         # end while
         return storedP, size_inlier_set
@@ -728,6 +720,3 @@ class SPRTRANSACDLT:
             return self.compute_pose_from_pmatrix(P), n_inliers
         else:
             return None, n_inliers
-
-
-

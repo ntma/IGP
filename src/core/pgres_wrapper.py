@@ -1,16 +1,15 @@
 import psycopg2 as ps2
-import time
+
 
 #######################
 # PostgresSQL wrapper #
 #######################
-class PGWrapper:
+class PGWrapper(object):
     def __init__(self):
         ''' Constructor for this class. '''
         self.conn = None
         self.curr = None
         self.conn_string = None
-        self.overall_time = 0.0
 
     def connect_pg(self, path):
         """
@@ -41,7 +40,6 @@ class PGWrapper:
         :param values: list of values to process
         :return: rowcount
         """
-        t_start = time.time()
 
         try:
             self.curr.executemany(query, values)
@@ -51,7 +49,6 @@ class PGWrapper:
             print e.pgcode
             print e.pgerror
             return -1
-        self.overall_time += time.time() - t_start
 
         return self.curr.rowcount
 
@@ -62,8 +59,6 @@ class PGWrapper:
         :return: rowcount
         """
 
-        t_start = time.time()
-
         try:
             self.curr.execute(query)
         except ps2.Error as e:
@@ -73,7 +68,26 @@ class PGWrapper:
             print e.pgerror
 
             return -1
-        self.overall_time += time.time() - t_start
+
+        return self.curr.rowcount
+
+    def execute_query_params(self, query, data):
+        """
+        Execute a query with parameters given by data field
+        :param query: query to execute
+        :param data: data to be converted by psycopg
+        :return: rowcount
+        """
+
+        try:
+            self.curr.execute(query, data)
+        except ps2.Error as e:
+            print "Cant execute the query"
+            print e
+            print e.pgcode
+            print e.pgerror
+
+            return -1
 
         return self.curr.rowcount
 
@@ -97,9 +111,7 @@ class PGWrapper:
         :return: dictionary with the result
         """
 
-        t_start = time.time()
         a = self.curr.fetchall()
-        self.overall_time += time.time() - t_start
         return a
 
     def fetch_one(self):
@@ -108,9 +120,7 @@ class PGWrapper:
         :return:
         """
 
-        t_start = time.time()
         a = self.curr.fetchone()
-        self.overall_time += time.time() - t_start
         return a
 
     def read_conn_string(self, path):
@@ -128,10 +138,3 @@ class PGWrapper:
         f.close()
 
         self.conn_string = "host=" + v[0] + " port=" + v[1] + " dbname=" + v[2] + " user=" + v[3]
-
-    def get_overall_time(self):
-        """
-        Returns the overall time spent by this module
-        :return:
-        """
-        return self.overall_time

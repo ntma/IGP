@@ -48,7 +48,7 @@ def read_sift_file(filepath):
     n_pts = int(header[0])
     desc_size = int(header[1])
 
-    kpts = [[0.0, 0.0] for i in range(n_pts)]
+    kpts = np.empty((n_pts, 2), dtype=float)
     descs = []
 
     for i in range(n_pts):
@@ -59,24 +59,21 @@ def read_sift_file(filepath):
         #s = float(line[2])
         #o = float(line[3])
 
-        #k = f.readline()
         line = f.readline()[:-1]
         if line[0] == ' ':
             line = line[1:]
 
         line = line.split(' ')
 
-        desc = np.array(line, dtype=float)
+        desc = line
 
         for j in range(6):
             line = f.readline()[:-1]
             if line[0] == ' ':
                 line = line[1:]
             line = line.split(' ')
-            g = np.array(line, dtype=float)
-            desc = np.concatenate((desc, g))
 
-        desc /= 512.0
+            desc += line
 
         kpts[i][0] = x
         kpts[i][1] = y
@@ -85,7 +82,8 @@ def read_sift_file(filepath):
 
         descs.append(desc)
 
-    descs = np.array(descs)
+    descs = np.array(descs, dtype=float)
+
+    descs /= 512.0
 
     return kpts, descs
-

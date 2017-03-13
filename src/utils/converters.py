@@ -44,9 +44,9 @@ def bytestring2nparray(a, type):
     """
 
     if type:
-        return np.array(bytearray(a)[:], dtype=float) / 512.0
+        return np.fromstring(a, dtype=np.uint8) / 512.0
     else:
-        return np.array(bytearray(a)[:], dtype=type)
+        return np.fromstring(a, dtype=np.uint8)
 
 
 def npint2pgbyte(a):
