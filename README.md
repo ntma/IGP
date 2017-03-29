@@ -34,12 +34,12 @@ More datasets will be tested soon.
 ### Benchmarks ###
 
 The following statistics were obtained with the current implementation:
-* Success pose: 523 from 800 queries (65.37%)
-* Overall time: 28 minutes
-* Mean time/query: 2 seconds
+* Success pose: 790 from 800 queries (98.75%)
+* Overall time: ~2 hours
+* Mean time/query: ~10 seconds
 * Mean position error: ~25 meters
 
-As an additional note, 50% of the successful queries have an error below 2 meters. We are currently fixing the query pipeline to improve the success geocoding rate.
+As an additional note, 75% of the successful queries have an error below 8 meters. We are currently fixing the query speed performance.
 
 ### Setting the Database ###
 * Coming soon

@@ -19,7 +19,12 @@ class BagOfFeatures:
         :return: params outputed by FLANN
         """
 
-        return self.fine_bof.build_index(words, algorithm=1, trees=1, random_seed=0, log_level="info")
+        return self.fine_bof.build_index(words,
+                                         algorithm=1,
+                                         trees=1,
+                                         random_seed=1,
+                                         checks=10,
+                                         log_level="info")
 
     def save_fine_index(self, filename):
         """
@@ -48,8 +53,16 @@ class BagOfFeatures:
         :param k: branching factor
         :return: params outputed by FLANN
         """
+
         # Create words
-        return self.coarse_bof.build_index(words, algorithm=2, branching=k)
+        return self.coarse_bof.build_index(words,
+                                           algorithm=2,
+                                           trees=1,
+                                           branching=k,
+                                           random_seed=1,
+                                           iterations=11,
+                                           centers_init=0,
+                                           cb_index=0.2)
 
     def search_fine(self, qdata, nn, chks, nc=1):
         """

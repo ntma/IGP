@@ -1,9 +1,11 @@
-from src.utils.geometry import compute_SVD, project_point
-from src.utils.geometry import euclidean_distance
-import random
-import numpy as np
-import logging as lg
+from src.utils.geometry import compute_SVD, c_project_point, \
+                                c_euclidean_distance_2d, norm2d, norm3d
 
+import logging as lg
+import math
+from random import sample
+from numpy import add, zeros, matmul, array
+import numpy as np
 
 ##############
 # References #
@@ -16,23 +18,23 @@ import logging as lg
 #################################################################
 class SPRTRANSACDLT:
     def __init__(self):
-        self.SPRT_m_s = 1
-        self.t_M = 200
+        self.SPRT_m_s = 1.0
+        self.t_M = 200.0
 
         self.nb_SPRT_tests = 100
 
         self.epsilon_i = [0.0] * self.nb_SPRT_tests
         self.delta_i = [0.0] * self.nb_SPRT_tests
         self.A_i = [0.0] * self.nb_SPRT_tests
-        self.k_i = [0.0] * self.nb_SPRT_tests
+        self.k_i = [0] * self.nb_SPRT_tests
         self.h_i = [0.0] * self.nb_SPRT_tests
         self.nb_epsilon_values = 8
         self.nb_delta_values = 10
 
         self.number_of_samples = 6
 
-        self.max_number_of_LO_samples = 12 # TODO: keep this?
-        self.nb_lo_steps = 20
+        self.max_number_of_LO_samples = 12
+        self.nb_lo_steps = 0
 
         self.LOG_5_PER = -2.99573
 
@@ -41,7 +43,7 @@ class SPRTRANSACDLT:
 
         self.SPRT_eps_val = [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
         self.SPRT_delta_val = [0.01, 0.02, 0.07, 0.12, 0.17, 0.22, 0.27, 0.32, 0.37, 0.42]
-        self.SPRT_h_i_val = np.array([ 1.0, 1.0, 1.0, 1.0015, 1.0249, 0.0, 0.0, 0.0, 0.0, 0.0,
+        self.SPRT_h_i_val = array( [1.0, 1.0, 1.0, 1.0015, 1.0249, 0.0, 0.0, 0.0, 0.0, 0.0,
                                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
                                        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
@@ -109,11 +111,13 @@ class SPRTRANSACDLT:
     #################################
     # SPRT-RANSAC Support functions #
     #################################
-    def sprt_compute_A(self, sig, eps):
-        a = 1.0 - sig
+    def sprt_compute_A(self, eps, delta):
+        Pg = eps * eps * eps * eps * eps * eps
+
+        a = 1.0 - delta
         b = 1.0 - eps
 
-        C = a * np.log(a / b) + sig * np.log(sig / eps)
+        C = a * np.log(a / b) + delta * np.log(delta / eps)
         a = self.t_M * C / self.SPRT_m_s + 1.0
 
         A_0 = a
@@ -132,54 +136,20 @@ class SPRTRANSACDLT:
 
         real_ratio = inlier_ratio
 
-        real_ratio = np.max((real_ratio, 0.029780))
+        real_ratio = max(real_ratio, 0.029780)
 
-        return np.ceil(self.LOG_5_PER / np.log(1.0 - real_ratio * real_ratio * real_ratio * real_ratio * real_ratio * real_ratio))
+        return math.ceil(self.LOG_5_PER / np.log(1.0 - real_ratio * real_ratio * real_ratio * real_ratio * real_ratio * real_ratio))
 
     def SPRT_get_max_sprt_ransac_steps(self, epsilon, l):
-        # levenberg - marquardt variables
-        a = 0
-        b = 0
-        c = 0
-        d = 0
-        e = 0
-        f = 0
-        ff = 0
-        fff = 0
-        f_1 = 0
-        A = 0
-        g = 0
-        x_old = 0
-        x_new = 0
-        h_lm = 0
-        F_x_new = 0
-        F_x_old = 0
-        t = 0
-        upsilon = 0
-        mu = 0
-        tmp_flt1 = 0
-        tmp_flt2 = 0
-        rho = 0
-        k = 0
-        found  = False
 
-        # compute all the h_i
-        idx_eps = 0
-        idx_eps_i = 0
-        idx_delta_i = 0
-        # Timer
-        #h_i_timer;
-        #h_i_timer.Init();
-        #h_i_timer.Start();
-
-        for i in range(0, l):
+        for i in xrange(0, l):
             # do a table look-up to get a approximate starting value for h_i
 
             # first find a similar value for epsilon
             tmp_flt1 = abs(epsilon - self.SPRT_eps_val[0])
             idx_eps = 0
 
-            for j in range(1, self.nb_epsilon_values):
+            for j in xrange(1, self.nb_epsilon_values):
                 tmp_flt2 = abs(epsilon - self.SPRT_eps_val[j])
 
                 if tmp_flt2 > tmp_flt1:
@@ -191,7 +161,7 @@ class SPRTRANSACDLT:
             tmp_flt1 = abs(self.epsilon_i[i] - self.SPRT_eps_val[0])
             idx_eps_i = 0
 
-            for j in range(1, self.nb_epsilon_values):
+            for j in xrange(1, self.nb_epsilon_values):
 
                 tmp_flt2 = abs(self.epsilon_i[i] - self.SPRT_eps_val[j])
                 if tmp_flt2 > tmp_flt1:
@@ -203,7 +173,7 @@ class SPRTRANSACDLT:
             tmp_flt1 = abs(self.delta_i[i] - self.SPRT_delta_val[0])
             idx_delta_i = 0
 
-            for j in range(1, self.nb_delta_values):
+            for j in xrange(1, self.nb_delta_values):
                 tmp_flt2 = abs(self.epsilon_i[i] - self.SPRT_delta_val[j])
                 if tmp_flt2 > tmp_flt1:
                     break
@@ -225,17 +195,17 @@ class SPRTRANSACDLT:
             e = np.log(b)
 
             k = 0
-            ff = np.power(a, x_old)
-            fff = np.power(b, x_old)
+            ff = math.pow(a, x_old)
+            fff = math.pow(b, x_old)
             f_1 = epsilon * d * ff + c * e * fff
             A = f_1 * f_1
-            F_x_new = F_x_old = epsilon * ff * +c * fff-1.0
+            F_x_new = F_x_old = epsilon * ff * + c * fff-1.0
             g = f_1 * F_x_old
 
             mu = 1e-6 * A
             upsilon = 2.0
 
-            found = abs(g) <= 1e-6
+            found = (abs(g) <= 1e-6)
 
             while not found and k < 200:
                 k += 1
@@ -243,18 +213,18 @@ class SPRTRANSACDLT:
                 h_lm = -g / (A + mu)
                 found = abs(h_lm) <= 1e-6 * (abs(x_old) + 1e-6)
                 x_new = x_old + h_lm
-                F_x_new = epsilon * np.power(a, x_new) + c * np.power(b, x_new) - 1.0
+                F_x_new = epsilon * math.pow(a, x_new) + c * math.pow(b, x_new) - 1.0
                 rho = 2.0 * (F_x_old * F_x_old - F_x_new * F_x_new) / (h_lm * (mu * h_lm - g))
 
                 if rho > 0.0:
                     x_old = x_new
-                    f_1 = epsilon * d * np.power(a, x_old) * ff + c * e * np.power(b, x_old)
+                    f_1 = epsilon * d * math.pow(a, x_old) * ff + c * e * math.pow(b, x_old)
                     A = f_1 * f_1
                     g = f_1 * F_x_new
                     F_x_old = F_x_new
                     found = abs(g) <= 1e-6
                     t = 2.0 * rho - 1.0
-                    mu *= np.max((1.0 / 3.0, 1.0 - t * t * t ))
+                    mu *= max(1.0 / 3.0, 1.0 - t * t * t)
                     upsilon = 2.0
 
                 else:
@@ -264,34 +234,33 @@ class SPRTRANSACDLT:
 
             self.h_i[i] = x_old
         # end for
-        #h_i_timer.Stop();
 
         # now we compute the probability eta(l - 1)
-
         eta_l_minus_1 = 0.0
-        Pg = 1.0
 
         Pg = epsilon * epsilon * epsilon * epsilon * epsilon * epsilon
 
-        for i in range(0, l):
-            eta_l_minus_1 += np.log( 1.0 - Pg * (1.0 - np.power( self.A_i[i], -self.h_i[i] )) ) * self.k_i[i]
+        for i in xrange(0, l):
+            eta_l_minus_1 += np.log(1.0 - Pg * (1.0 - math.pow(self.A_i[i], - self.h_i[i]))) * self.k_i[i]
 
         numerator = self.LOG_5_PER - eta_l_minus_1
 
         if numerator >= 0.0:
             return 0
 
-        return np.ceil(numerator / np.log(1.0 - Pg * (1.0 - 1.0 / self.A_i[l] )))
+        return math.ceil(numerator / np.log(1.0 - Pg * (1.0 - 1.0 / self.A_i[l])))
 
-    def evaluate_correspondence(self, pt3d, pt2d, P):
+    @staticmethod
+    def evaluate_correspondence(pt3d, pt2d, P):
 
-        projpoint = project_point(P, pt3d)
+        projpoint = c_project_point(P, pt3d)
 
-        return euclidean_distance(pt2d, projpoint)
+        return c_euclidean_distance_2d(pt2d, projpoint)
 
-    def compute_pseudo_random_indexes(self, pts3d, pts2d):
+    @staticmethod
+    def compute_pseudo_random_indexes(pts3d, pts2d, nb_corr, n_samples):
         # take a random sample from the set of correspondences
-        pseudo_random_indexes = random.sample(xrange(len(pts3d)), 6)
+        pseudo_random_indexes = sample(xrange(0, nb_corr), n_samples)
 
         # add the correspondences
         x  = pts2d[pseudo_random_indexes] # numpy hack with list of indexes
@@ -302,7 +271,8 @@ class SPRTRANSACDLT:
     #########################
     # DLT Support functions #
     #########################
-    def scale_correspondences(self, wX, x):
+    @staticmethod
+    def scale_correspondences(wX, x):
         """
         Normalizes the 3D-2D correspondences
         :param wX: 3D points
@@ -310,14 +280,16 @@ class SPRTRANSACDLT:
         :return: success, scaled3D, scaled2D, scaledImgMat, scaledWorldMat
         """
         # Center points for scaling
-        center2D = np.zeros(2)#np.array([0.0, 0.0])
-        center3D = np.zeros(3)#np.array([0.0, 0.0, 0.0])
+        center2D = zeros(2)
+        center3D = zeros(3)
+
+        nb_corr = len(wX)
 
         # Determine c.o.g (Center of Gravity?)
         n = 1.0
-        for i in range(len(wX)):
-            center2D = np.add(x[i] * (1.0/n), center2D * ((n-1.0) / n))
-            center3D = np.add(wX[i] * (1.0 / n), center3D * ((n - 1.0) / n))
+        for i in xrange(nb_corr):
+            center2D = add(x[i] * (1.0/n), center2D * ((n-1.0) / n))
+            center3D = add(wX[i] * (1.0 / n), center3D * ((n - 1.0) / n))
 
             n += 1.0
 
@@ -329,12 +301,12 @@ class SPRTRANSACDLT:
         scaledwX = wX.copy()
         scaledx = x.copy()
 
-        for i in range(len(wX)):
+        for i in xrange(nb_corr):
             scaledx[i] -= center2D
             scaledwX[i] -= center3D
 
-            scale2D = scale2D * ((n - 1.0) / n) + np.linalg.norm(scaledx[i]) * (1.0 / n)
-            scale3D = scale3D * ((n - 1.0) / n) + np.linalg.norm(scaledwX[i]) * (1.0 / n)
+            scale2D = scale2D * ((n - 1.0) / n) + norm2d(scaledx[i]) * (1.0 / n)
+            scale3D = scale3D * ((n - 1.0) / n) + norm3d(scaledwX[i]) * (1.0 / n)
 
             n += 1.0
 
@@ -344,12 +316,11 @@ class SPRTRANSACDLT:
         scale2D = 1.41421 / scale2D  # sqrt(2)
         scale3D = 1.73205 / scale3D  # sqrt(3)
 
-        for i in range(len(scaledwX)):
-            scaledx[i] *= scale2D
-            scaledwX[i] *= scale3D
+        scaledx *= scale2D
+        scaledwX *= scale3D
 
-        m_matScaleImgInv = np.zeros((3, 3))
-        m_matScaleWorld = np.zeros((4, 4))
+        m_matScaleImgInv = zeros((3, 3))
+        m_matScaleWorld = zeros((4, 4))
 
         m_matScaleImgInv[0][0] = 1.0 / scale2D
         m_matScaleImgInv[1][1] = 1.0 / scale2D
@@ -374,15 +345,15 @@ class SPRTRANSACDLT:
         nrows = 3 * endCorr
         ncols = 12
 
-        mat_A = np.zeros((nrows, ncols))
-        vec_point = np.zeros(4)
+        mat_A = zeros((nrows, ncols))
+        vec_point = zeros(4)
 
         m_flag, wX, x, m_imgscale, m_worldscale = self.scale_correspondences(unscaledwX, unscaledx)
 
         if not m_flag:
             return None
 
-        for corr in range(0, endCorr):
+        for corr in xrange(0, endCorr):
             vec_point[0] = wX[corr][0]
             vec_point[1] = wX[corr][1]
             vec_point[2] = wX[corr][2]
@@ -420,17 +391,20 @@ class SPRTRANSACDLT:
 
         _, _, mat_VT = compute_SVD(mat_A)
 
-        m_projectionMatrix = np.zeros((3, 4))
-        for row in range(3):
-            for col in range(4):
-                m_projectionMatrix[row][col] = mat_VT[11][4 * row + col]
+        #m_projectionMatrix = zeros((3, 4))
+        #for row in xrange(3):
+        #    for col in xrange(4):
+        #        m_projectionMatrix[row][col] = mat_VT[11][4 * row + col]
 
-        m_projectionMatrix = np.matmul(m_imgscale, m_projectionMatrix)
-        m_projectionMatrix = np.matmul(m_projectionMatrix, m_worldscale)
+        m_projectionMatrix = mat_VT[11][0: 12].reshape((3, 4))
+
+        m_projectionMatrix = matmul(m_imgscale, m_projectionMatrix)
+        m_projectionMatrix = matmul(m_projectionMatrix, m_worldscale)
 
         return m_projectionMatrix
 
-    def compute_pose_from_pmatrix(self, m_projectionMatrix):
+    @staticmethod
+    def compute_pose_from_pmatrix(m_projectionMatrix):
         """
         Decomposes the P matrix into K, R, t, and the 3 euler angles
         :param P: Projection matrix
@@ -439,25 +413,26 @@ class SPRTRANSACDLT:
 
         _, _, mat_VT = compute_SVD(m_projectionMatrix)
 
-        position = np.zeros(3)
+        position = zeros(3)
+        #orientation = zeros(3)
 
-        for i in range(0, 3):
+        for i in xrange(0, 3):
             position[i] = mat_VT[3][i] / mat_VT[3][3]
 
         # get the viewing direction of the camera, see Hartley & Zisserman, 2nd ed., pages 160 - 161
         # compute the determinant of the 3x3 part of the projection matrix
-        # det = m_projectionMatrix[0][0] * m_projectionMatrix[1][1] * m_projectionMatrix[2][2] +
-        #       m_projectionMatrix[0][1] * m_projectionMatrix[1][2] * m_projectionMatrix[2][0] +
-        #       m_projectionMatrix[0][2] * m_projectionMatrix[1][0] * m_projectionMatrix[2][1] -
-        #       m_projectionMatrix[0][2] * m_projectionMatrix[1][1] * m_projectionMatrix[2][0] -
-        #       m_projectionMatrix[0][1] * m_projectionMatrix[1][0] * m_projectionMatrix[2][2] -
-        #       m_projectionMatrix[0][0] * m_projectionMatrix[1][2] * m_projectionMatrix[2][1]
+        det = m_projectionMatrix[0][0] * m_projectionMatrix[1][1] * m_projectionMatrix[2][2] + \
+              m_projectionMatrix[0][1] * m_projectionMatrix[1][2] * m_projectionMatrix[2][0] + \
+              m_projectionMatrix[0][2] * m_projectionMatrix[1][0] * m_projectionMatrix[2][1] - \
+              m_projectionMatrix[0][2] * m_projectionMatrix[1][1] * m_projectionMatrix[2][0] - \
+              m_projectionMatrix[0][1] * m_projectionMatrix[1][0] * m_projectionMatrix[2][2] - \
+              m_projectionMatrix[0][0] * m_projectionMatrix[1][2] * m_projectionMatrix[2][1]
 
         # remember that the camera in reconstructions computed by Bundler looks
         # down the negative z-axis instead of the positive z-axis.
         # So we have to multiply the orientation with -1.0
-        # for i in range(0, 3):
-        #    orientation[i] = - m_projectionMatrix[2][i] * det
+        #for i in xrange(0, 3):
+        orientation = - m_projectionMatrix[2][0:3] * det
 
         return position
 
@@ -475,8 +450,10 @@ class SPRTRANSACDLT:
             return None, 0
 
         # Set the inlier ratio
-        inlier_ratio = np.max((min_inlier_ratio, float(self.number_of_samples) / float(nb_correspondences)))
+        inlier_ratio = max(min_inlier_ratio, float(self.number_of_samples) / float(nb_correspondences))
 
+        if inlier_ratio == 1.0:
+            inlier_ratio = 0.99
 
         # Max steps ransac has to take
         max_steps = self.get_max_ransac_steps(inlier_ratio)
@@ -484,7 +461,7 @@ class SPRTRANSACDLT:
         # Size of the best inlier set
         size_inlier_set = self.number_of_samples - 1
 
-        new_inlier_found = 0
+        new_found_inlier = 0
 
         # Initialize the 0-th SPRT test
         self.epsilon_i[0] = inlier_ratio
@@ -493,7 +470,6 @@ class SPRTRANSACDLT:
 
         current_test = 0
         old_test = -1
-
 
         eval_1 = self.delta_i[0] / self.epsilon_i[0]
         eval_0 = (1.0 - self.delta_i[0]) / (1.0 - self.epsilon_i[0])
@@ -524,8 +500,8 @@ class SPRTRANSACDLT:
 
         while True:
 
-            while taken_samples < max_steps:# """ 0.01 """;){
-                # TODO: is this required?
+            while taken_samples < max_steps:
+
                 """if stop_after_n_secs:
                     elapsed_time_sec = time_out_timer.GetElapsedTime()
                     time_out_timer.Stop()
@@ -568,7 +544,7 @@ class SPRTRANSACDLT:
                     break
 
                 # Random sampling
-                wX, x = self.compute_pseudo_random_indexes(pts3d, pts2d)
+                wX, x = self.compute_pseudo_random_indexes(pts3d, pts2d, nb_correspondences,  6)
 
                 # Compute model
                 P = self.pose_dlt_acg(wX, x)
@@ -582,7 +558,7 @@ class SPRTRANSACDLT:
                 bad_model = False
 
                 # Compute residuals
-                for i in range(len(pts3d)):
+                for i in xrange(nb_correspondences):
                     residual = self.evaluate_correspondence(pts3d[i], pts2d[i], P)
 
                     # If it is an inlier
@@ -618,57 +594,65 @@ class SPRTRANSACDLT:
                     # store hypothesis and update inlier ratio
                     storedP = P
 
-                    # compute inlier
-                    inlier = []
-                    for ii in range(len(pts3d)):
-                        if self.evaluate_correspondence(pts3d[ii], pts2d[ii], P) <= self.reproj_error:
-                            inlier.append(ii)
+                    """
+                    if inlier_found > self.number_of_samples:
+                        # compute inlier
+                        inlier = []
+                        for ii in xrange(nb_correspondences):
+                            if self.evaluate_correspondence(pts3d[ii], pts2d[ii], P) <= self.reproj_error:
+                                inlier.append(ii)
 
-                    # do Local Optimization(LO) - steps( if possible!)
-                    nb_LO_samples = np.max((self.number_of_samples, np.min((inlier_found / 2, self.max_number_of_LO_samples))))
-                    for lo_steps in range(self.nb_lo_steps):
+                        nb_inlier_found = len(inlier)
 
-                        pseudo_random_inliers = random.sample(xrange(len(inlier)), nb_LO_samples)
-                        # generate hypothesis
-                        # add the correspondences
+                        # do Local Optimization(LO) - steps( if possible!)
+                        nb_LO_samples = max(self.number_of_samples, min(inlier_found / 2, self.max_number_of_LO_samples))
+                        for lo_steps in xrange(self.nb_lo_steps):
 
-                        owX = []
-                        ox = []
+                            pseudo_random_inliers = sample(xxrange(nb_inlier_found), nb_LO_samples)
+                            # generate hypothesis
+                            # add the correspondences
 
-                        for i in pseudo_random_inliers:
-                            owX.append(pts3d[inlier[i]])
-                            ox.append(pts2d[inlier[i]])
+                            owX = []
+                            ox = []
 
-                        owX = np.array(owX)
-                        ox = np.array(ox)
+                            for i in pseudo_random_inliers:
+                                owX.append(pts3d[inlier[i]])
+                                ox.append(pts2d[inlier[i]])
 
-                        loP = self.pose_dlt_acg(owX, ox)
+                            owX = array(owX)
+                            ox = array(ox)
 
-                        if loP is None:
-                            continue
+                            loP = self.pose_dlt_acg(owX, ox)
 
-                        # compute inlier to the hypothesis
-                        new_found_inlier = 0
+                            if loP is None:
+                                continue
 
-                        for i in range(len(pts3d)):
-                            lo_residual = self.evaluate_correspondence(pts3d[i], pts2d[i], loP)
+                            # compute inlier to the hypothesis
+                            new_found_inlier = 0
 
-                            if lo_residual <= self.reproj_error:
-                                new_found_inlier += 1
+                            for i in xrange(nb_correspondences):
+                                lo_residual = self.evaluate_correspondence(pts3d[i], pts2d[i], loP)
 
-                        # update found model if new best hypothesis
-                        if new_found_inlier > inlier_found:
-                            inlier_found = new_found_inlier
-                            storedP = loP
+                                if lo_residual <= self.reproj_error:
+                                    new_found_inlier += 1
+
+                            # update found model if new best hypothesis
+                            if new_found_inlier > inlier_found:
+                                inlier_found = new_found_inlier
+                                storedP = loP
+                    """
 
                     old_ratio = inlier_ratio
-                    inlier_ratio = max((inlier_ratio, float(inlier_found) / float(nb_correspondences )))
+                    inlier_ratio = max(inlier_ratio, float(inlier_found) / float(nb_correspondences))
                     max_steps = self.get_max_ransac_steps(inlier_ratio)
                     size_inlier_set = inlier_found
 
                     # Design a new test if needed.
                     # The check must be done to avoid designing a test for an inlier
                     # ratio below the specified minimal inlier ratio.
+                    if inlier_ratio == 1.0:
+                        return storedP, new_found_inlier
+
                     if old_ratio < inlier_ratio:
                         current_test += 1
                         self.k_i[current_test] = 0
@@ -677,7 +661,6 @@ class SPRTRANSACDLT:
                         self.A_i[current_test] = self.sprt_compute_A(inlier_ratio, delta_hat)
                 # end Alg 2, if biggest support
             # end for
-
 
             # Max ransac steps
             # adjust the number of steps SPRT RANSAC has to take
@@ -710,7 +693,7 @@ class SPRTRANSACDLT:
 
             n_inliers = 0
 
-            for i in range(len(pts3d)):
+            for i in xrange(nb_correspondences):
 
                 residual = self.evaluate_correspondence(pts3d[i], pts2d[i], P)
 

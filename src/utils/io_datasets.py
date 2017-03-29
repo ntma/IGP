@@ -17,7 +17,7 @@ def read_generic_vocabulary_100K(filepath, norm_flag=False):
         word = np.array(line, dtype=float)
 
         if norm_flag:
-            word /= np.linalg.norm(word)
+            word /= 512.0
 
         words.append(word)
 
