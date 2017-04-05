@@ -16,6 +16,7 @@ To achieve this goal, we will divide the project into two stages: in the first w
 * Psycopg2
 * Numpy
 * PyFLANN (Modified and available in https://github.com/ntma/flann)
+* PGSEDistance (available in https://github.com/ntma/PGSEDistance)
 
 ### Related Algorithms ###
 * Vocabulary Prioritized Search (VPS) [1]
@@ -39,10 +40,90 @@ The following statistics were obtained with the current implementation:
 * Mean time/query: ~10 seconds
 * Mean position error: ~25 meters
 
-As an additional note, 75% of the successful queries have an error below 8 meters. We are currently fixing the query speed performance.
+Note that 75% of the successful queries have an error below 8 meters. This benchmark was performed in an 
+i5-4200U 1.6GHz processor with a 550MB/s read/write speed. We are currently fixing the query speed performance.
+
+### HUGE DISCLAMER ###
+
+Before proceeding to the installation/execution instructions, we must warn that 
+this project is in a prototyping stage. Future releases of this code may not 
+provide backwards compatibility.
+
+### Installing pre-requisites ###
+
+Download the [modified FLANN](https://github.com/ntma/flann) library and install it. This modified version is able to compute 
+the parents of quantized descriptors at level L when using K-Means clustering.
+
+```
+cd flann/
+mkdir build
+cd build/
+cmake ..
+make
+make install
+```
+
+Download and install the [SEDistance](https://github.com/ntma/PGSEDistance) plugin to compute euclidean distances in PostgreSQL. 
+The installation target will be the PostgreSQL library folder.
+
+```
+cd sedistance/
+make
+make install
+```
+
+And finally compile the python plugin for faster math operations.
+
+```
+cd src/c_package/
+python setup.py build_ext --inplace
+```
 
 ### Setting the Database ###
-* Coming soon
+
+Setting the database requires a super user. Only super users can create functions from 
+extensions written in C. If not present, a super user can be created with:
+
+```
+createuser -h host -p port -P -s -e username
+```
+
+Now create the database with the super user.
+
+```
+createdb -h host -p port -U username database_name
+```
+
+And finally, execute both the create tables/functions scripts.
+
+```
+psql -p port -h host -d database_name -f postgres_scripts/create_tables.sql
+psql -p port -h host -d database_name -f postgres_scripts/sql_functions.sql
+```
+
+### Insert the Dataset ###
+
+To pre-process the dataset we follow a similar strategy to ACG-Localizer (although our generated files are not compatible YET).
+We first generate a binary file containing all the required data from a Bundler SFM point cloud.
+
+```
+parse_dataset.py -p PATH_DATASET -o OUTPUT_BINARY
+```
+
+Then we read the outputted binary file and pre-process the point cloud. This includes, generating 
+the indexes to the input visual vocabulary, computing the k-NN visibility graph and meaning descriptors 
+per visual word (float representation for now). The output directory will contain several CSV files to 
+speed the dataset insertion into PostgreSQL.
+
+```
+prepare_dataset.py -p BINARY_PATH -w VOCABULARY_PATH -o CSV_OUTPUT_DIRECTORY
+```
+
+Finally, the CSV are loaded into PostgreSQL.
+
+```
+insert_dataset.py -p CSV_INPUT_DIRECTORY -k PG_KEY
+```
 
 ### Running benchmarks ###
 * Coming soon
