@@ -9,26 +9,19 @@ def read_generic_vocabulary_100K(filepath, norm_flag=False):
         print "Could not open " + str(filepath)
         return None
 
-    words = []
+    words = np.zeros((100000, 128), dtype=float)
 
-    for i in range(100000):
-        line = f.readline()[:-1].split()
-
-        word = np.array(line, dtype=float)
-
-        if norm_flag:
-            word /= 512.0
-
-        words.append(word)
-
+    for i, line in enumerate(f):
+        words[i] = np.asarray(line.split(), dtype=float)
     f.close()
 
-    words = np.array(words)
+    if norm_flag:
+        words /= 512.0
 
     return words
 
 
-def read_sift_file(filepath):
+def read_sift_file(filepath, normalize=True):
 
     """
     Reader for bundler SIFT format
@@ -43,13 +36,18 @@ def read_sift_file(filepath):
         print "Could not open " + str(filepath)
         return None, None
 
+    if normalize:
+        ttype = float
+    else:
+        ttype = np.uint8
+
     header = f.readline()[:-1].split(' ')
 
     n_pts = int(header[0])
     desc_size = int(header[1])
 
     kpts = np.empty((n_pts, 2), dtype=float)
-    descs = []
+    descs = np.empty((n_pts, 128), dtype=ttype)
 
     for i in range(n_pts):
         line = f.readline()[:-1].split(' ')
@@ -59,31 +57,16 @@ def read_sift_file(filepath):
         #s = float(line[2])
         #o = float(line[3])
 
-        line = f.readline()[:-1]
-        if line[0] == ' ':
-            line = line[1:]
+        desc = []
+        for j in xrange(7):
+            desc += f.readline().split()
 
-        line = line.split(' ')
-
-        desc = line
-
-        for j in range(6):
-            line = f.readline()[:-1]
-            if line[0] == ' ':
-                line = line[1:]
-            line = line.split(' ')
-
-            desc += line
+        descs[i] = np.asarray(desc, dtype=ttype)
 
         kpts[i][0] = x
         kpts[i][1] = y
-        #kpts[i][2] = s
-        #kpts[i][3] = o
 
-        descs.append(desc)
-
-    descs = np.array(descs, dtype=float)
-
-    descs /= 512.0
+    if normalize:
+        descs /= 512.0
 
     return kpts, descs

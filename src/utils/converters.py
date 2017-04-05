@@ -56,7 +56,7 @@ def npint2pgbyte(a):
     :return: binary string
     """
 
-    l = a.astype(dtype=np.int32).tolist()
+    l = a.tolist()
 
     b = array.array('B', l).tostring()
 

@@ -57,7 +57,7 @@ class PGQueries(pgw.PGWrapper):
         """
 
         self.execute_query_params("""SELECT id, wids
-                                     FROM get_3d_nn_filtered(%s, %s)""", (pt_id, n_neighbors))
+                                     FROM get_3d_nn_filtered_lvl3(%s, %s)""", (pt_id, n_neighbors))
 
         return self.fetch_all()
 
@@ -83,7 +83,7 @@ class PGQueries(pgw.PGWrapper):
         :return: list of uchar descriptors
         """
 
-        self.execute_query_params("""SELECT get_3d_descriptor(%s, %s);""", (pt3d_id, coarse_words_list))
+        self.execute_query_params("""SELECT get_3d_descriptor_lvl3(%s, %s);""", (pt3d_id, coarse_words_list))
 
         return self.fetch_all()
 
